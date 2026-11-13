@@ -11,7 +11,8 @@ Object.assign(process.env, repoEnv);
 process.env.EXPO_NO_TYPESCRIPT_SETUP = "1";
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
-if (APP_VARIANT === "community") {
+const isCommunityBuild = APP_VARIANT === "community";
+if (isCommunityBuild) {
   process.env.EXPO_PUBLIC_APP_LOCALE = "zh-CN";
 }
 const appVersion =
@@ -30,6 +31,15 @@ const runtimeVersionPolicy =
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const androidCommunityPackage = isCommunityBuild
+  ? repoEnv.T3CODE_ANDROID_COMMUNITY_PACKAGE?.trim()
+  : undefined;
+if (
+  androidCommunityPackage !== undefined &&
+  !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(androidCommunityPackage)
+) {
+  throw new Error("T3CODE_ANDROID_COMMUNITY_PACKAGE must be an Android application ID.");
+}
 
 // Compiled into the native project. Without a relay, Observe's native side could dispatch to
 // Expo's own ingest before observe.ts turns it off; `.invalid` never resolves (RFC 6761).
@@ -294,17 +304,22 @@ const config: ExpoConfig = {
     supportsTablet: true,
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
-    // Avoid Personal Team fallback: it cannot sign App Groups, Apple sign-in or push entitlements.
-    appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-      `applinks:${HOSTED_APP_HOST}`,
-    ],
-    entitlements: {
-      "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
-    },
+    // Only upstream builds use the upstream signing team and its domain associations.
+    ...(!isCommunityBuild && !isIosPersonalTeamBuild ? { appleTeamId: "ARK85ZXQ4Z" } : {}),
+    ...(!isCommunityBuild && !isIosPersonalTeamBuild
+      ? {
+          associatedDomains: [
+            `applinks:${variant.relyingParty}`,
+            `webcredentials:${variant.relyingParty}`,
+            `applinks:${HOSTED_APP_HOST}`,
+          ],
+          entitlements: {
+            "keychain-access-groups": [`$(AppIdentifierPrefix)${iosBundleIdentifier}`],
+          },
+        }
+      : {}),
     infoPlist: {
+      ...(isCommunityBuild ? { CFBundleDevelopmentRegion: "zh_CN" } : {}),
       UISupportedInterfaceOrientations: [
         "UIInterfaceOrientationPortrait",
         "UIInterfaceOrientationLandscapeLeft",
@@ -313,9 +328,12 @@ const config: ExpoConfig = {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
-      NSLocalNetworkUsageDescription:
-        "Allow T3 Code to connect to T3 Code servers on your local network or tailnet.",
-      NSPhotoLibraryAddUsageDescription: "Allow T3 Code to save images to your photo library.",
+      NSLocalNetworkUsageDescription: isCommunityBuild
+        ? "允许 T3 Code 中文版连接局域网或 Tailscale 网络中的 T3 Code 服务端。"
+        : "Allow T3 Code to connect to T3 Code servers on your local network or tailnet.",
+      NSPhotoLibraryAddUsageDescription: isCommunityBuild
+        ? "允许 T3 Code 中文版将图片保存到你的相册。"
+        : "Allow T3 Code to save images to your photo library.",
       // System picture in picture needs background audio to start and survive outside the app.
       UIBackgroundModes: ["audio"],
       ITSAppUsesNonExemptEncryption: false,
@@ -334,7 +352,7 @@ const config: ExpoConfig = {
   },
   android: {
     icon: variant.assets.appIcon,
-    package: variant.androidPackage,
+    package: androidCommunityPackage || variant.androidPackage,
     versionCode: androidVersionCode,
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
@@ -351,14 +369,16 @@ const config: ExpoConfig = {
     predictiveBackGestureEnabled: true,
     // expo-sensors declares this for its pedometer, which the app does not use.
     blockedPermissions: ["android.permission.ACTIVITY_RECOGNITION"],
-    intentFilters: [
-      {
-        action: "VIEW",
-        autoVerify: true,
-        data: [{ scheme: "https", host: HOSTED_APP_HOST, pathPrefix: "/threads/" }],
-        category: ["BROWSABLE", "DEFAULT"],
-      },
-    ],
+    intentFilters: isCommunityBuild
+      ? []
+      : [
+          {
+            action: "VIEW",
+            autoVerify: true,
+            data: [{ scheme: "https", host: HOSTED_APP_HOST, pathPrefix: "/threads/" }],
+            category: ["BROWSABLE", "DEFAULT"],
+          },
+        ],
   },
   web: {
     favicon: variant.assets.appIcon,
@@ -394,6 +414,8 @@ const config: ExpoConfig = {
     ...(isIosPersonalTeamBuild
       ? [sharingPlugin]
       : ["./plugins/withShareExtensionDisplayName.cjs", sharingPlugin]),
+    // Entitlements mods run in reverse order: remove push after expo-notifications sets it.
+    ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
     [
       "expo-notifications",
       {
@@ -508,7 +530,6 @@ const config: ExpoConfig = {
     // MainActivity mods run in reverse order; extend the tablet-orientation override.
     "./plugins/withAndroidWindowDisplayMetrics.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
-    ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
   ],
   extra: {
     appVariant: APP_VARIANT,

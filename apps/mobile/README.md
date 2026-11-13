@@ -8,17 +8,49 @@
 > [!NOTE]
 > Uses native modules so using Expo Go is not supported. You need to use the Expo Dev Client.
 
-This app has three variants:
+This app has four variants:
 
 - `development`: Expo dev client, installable side-by-side as `T3 Code Dev`
 - `preview`: persistent internal preview build, installable side-by-side as `T3 Code Preview`
 - `production`: store/release build as `T3 Code`
+- `community`: Simplified Chinese client for iOS and Android, with a separate app ID and no OTA updates
 
 Run commands from `apps/mobile`.
 
 T3 Connect is optional and disabled in a fresh clone. Public configuration belongs in the
 repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 [`../../.env.example`](../../.env.example).
+
+## Simplified Chinese builds
+
+Both platforms share the translations in [`mobileStrings.ts`](src/i18n/mobileStrings.ts).
+The `community` variant enables them at build time. Native iOS permission prompts are configured
+in [`app.config.ts`](app.config.ts). Keep model IDs, paths, agent replies and raw errors in their
+original form.
+
+From `apps/mobile`, build and launch the iOS simulator Release app:
+
+```sh
+pnpm ios:zh
+```
+
+For a physical iPhone, select your own team in Xcode. If you use a Personal Team, run the same
+command with `T3CODE_IOS_PERSONAL_TEAM=1` and
+`T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code.zh`. Use a bundle identifier you control.
+This configuration omits widgets, the share extension, native Apple sign-in, and push entitlements.
+
+To build an Android APK alongside an existing community installation, use a separate package ID:
+
+```sh
+T3CODE_ANDROID_COMMUNITY_PACKAGE=com.example.t3code.zh pnpm android:zh
+```
+
+The APK is under `android/app/build/outputs/apk/release/`. Local builds do not have the
+community release signing key and cannot update that signed release in place.
+
+Pair either mobile client with a reachable T3 Code server over LAN or a private network.
+The server keeps the provider credentials and model gateway settings. The hosted
+`app.t3.codes` links are not registered for the community app IDs.
 
 ## Development
 

@@ -8,7 +8,14 @@ import assetLinks from "../web/public/.well-known/assetlinks.json";
 vi.mock("../../scripts/lib/public-config.ts", () => ({
   loadRepoEnv: () =>
     Object.fromEntries(
-      ["APP_VARIANT", "T3CODE_MOBILE_VERSION", "T3CODE_MOBILE_VERSION_CODE"]
+      [
+        "APP_VARIANT",
+        "T3CODE_MOBILE_VERSION",
+        "T3CODE_MOBILE_VERSION_CODE",
+        "T3CODE_ANDROID_COMMUNITY_PACKAGE",
+        "T3CODE_IOS_PERSONAL_TEAM",
+        "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID",
+      ]
         .filter((key) => process.env[key] !== undefined)
         .map((key) => [key, process.env[key]]),
     ),
@@ -62,6 +69,24 @@ it("keeps the community identity and Chinese defaults separate from official var
   expect(config.version).toBe("0.1.9-zh.1");
   expect(config.android?.versionCode).toBe(1000416);
   expect(process.env.EXPO_PUBLIC_APP_LOCALE).toBe("zh-CN");
+  expect(config.ios?.appleTeamId).toBeUndefined();
+  expect(config.ios?.associatedDomains).toBeUndefined();
+  expect(config.ios?.entitlements).toBeUndefined();
+  expect(config.ios?.infoPlist?.CFBundleDevelopmentRegion).toBe("zh_CN");
+  expect(config.ios?.infoPlist?.NSLocalNetworkUsageDescription).toContain("局域网");
+  expect(config.ios?.infoPlist?.NSPhotoLibraryAddUsageDescription).toContain("相册");
+  expect(config.android?.intentFilters).toEqual([]);
+});
+
+it("allows independent community installs without changing the published Android package", async () => {
+  vi.stubEnv("T3CODE_ANDROID_COMMUNITY_PACKAGE", "com.example.t3code.zh");
+  vi.stubEnv("T3CODE_IOS_PERSONAL_TEAM", "1");
+  vi.stubEnv("T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID", "com.example.t3code.zh");
+  const config = await loadConfig("community");
+  expect(config.ios?.bundleIdentifier).toBe("com.example.t3code.zh");
+  expect(config.android?.package).toBe("com.example.t3code.zh");
+  expect(config.ios?.entitlements).toBeUndefined();
+  expect(config.updates?.enabled).toBe(false);
 });
 
 it("uses explicit community build metadata without changing official identifiers", async () => {
